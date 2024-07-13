@@ -103,7 +103,7 @@ class AbstractQA(AbstractQuestions):
             kwargs = {
                 "label": "summary_similarity",
                 "property": "score",
-                "value": 0.5,
+                "value": 0.3,
                 "comparison": "gt",
             }
 
@@ -112,11 +112,33 @@ class AbstractQA(AbstractQuestions):
             logging.warning("No nodes satisfy the query")
             return QAC()
 
-        num_clusters = min(num_samples, len(node_clusters))
-        seed_per_results = num_samples // len(node_clusters)
-        reminder = num_samples - seed_per_results * num_clusters
-        seeds = [seed_per_results] * num_clusters
-        seeds[-1] += reminder
+        try:
+
+
+            num_clusters = min(num_samples, len(node_clusters))
+
+            if num_clusters == 0:
+                raise ValueError("Number of clusters must be greater than 0.")
+
+
+            seed_per_results = num_samples // len(node_clusters)
+            reminder = num_samples - seed_per_results * num_clusters
+
+            seeds = [seed_per_results] * num_clusters
+
+            if not seeds:
+                seeds.append(reminder)
+            else:
+                seeds[-1] += reminder
+
+            print("Seeds:", seeds)
+        except ValueError as e:
+            print(f"ValueError: {e}")
+        except ZeroDivisionError as e:
+            print("Error: Division by zero. Ensure len(node_clusters) is not zero.")
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+
 
         nodes_themes = []
         for cluster, num_seeds in zip(node_clusters, seeds):
@@ -470,7 +492,7 @@ class ComparativeAbstractQA(AbstractQuestions):
         return output.generations[0][0].text
 
     async def retrieve_chunks(
-        self, nodes: t.List[Node], kwargs: t.Optional[dict] = None
+            self, nodes: t.List[Node], kwargs: t.Optional[dict] = None
     ) -> t.List[LCDocument] | None:
         kwargs = kwargs or {}
         assert self.embedding is not None, "Embedding is not initialized"
@@ -516,9 +538,22 @@ class ComparativeAbstractQA(AbstractQuestions):
             node.properties["metadata"]["page_content_embedding"] for node in leaf_nodes
         ]
         common_theme_embedding = await self.embedding.embed_text(common_theme)
+
+        # Check if page_embeddings is not empty
+        if not page_embeddings:
+            logging.warning("No page embeddings found")
+            return None
+
         similarity_matrix = cosine_similarity([common_theme_embedding], page_embeddings)
+
+        # Check if similarity_matrix is not empty
+        if similarity_matrix.size == 0:
+            logging.warning("Similarity matrix is empty")
+            return None
+
         most_similar = np.flip(np.argsort(similarity_matrix[0]))
         ranked_lead_nodes = [leaf_nodes[i] for i in most_similar]
+
         # TODO: allow for different models
         model_name = "gpt-3.5-turbo-"
         enc = tiktoken.encoding_for_model(model_name)

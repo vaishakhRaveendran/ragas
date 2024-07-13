@@ -17,25 +17,14 @@ logger = logging.getLogger(__name__)
 def is_event_loop_running() -> bool:
     try:
         loop = asyncio.get_running_loop()
+        return True
     except RuntimeError:
         return False
-    else:
-        return loop.is_running()
 
 
-def as_completed(coros, max_workers):
-    if max_workers == -1:
-        return asyncio.as_completed(coros)
-
-    semaphore = asyncio.Semaphore(max_workers)
-
-    async def sema_coro(coro):
-        async with semaphore:
-            return await coro
-
-    sema_coros = [sema_coro(c) for c in coros]
-
-    return asyncio.as_completed(sema_coros)
+async def run_with_semaphore(semaphore, coro):
+    async with semaphore:
+        return await coro
 
 
 @dataclass
@@ -50,60 +39,61 @@ class Executor:
         async def wrapped_callable_async(*args, **kwargs):
             result = np.nan
             try:
-                result = await callable(*args, **kwargs)
-            except MaxRetriesExceeded as e:
-                # this only for testset generation v2
-                logger.warning(f"max retries exceeded for {e.evolution}")
-            except Exception as e:
-                if self.raise_exceptions:
-                    raise e
+                if asyncio.iscoroutinefunction(callable):
+                    result = await callable(*args, **kwargs)
                 else:
-                    logger.error(
-                        "Runner in Executor raised an exception", exc_info=False
-                    )
-
+                    result = callable(*args, **kwargs)
+            except MaxRetriesExceeded as e:
+                logger.warning(f"Max retries exceeded for {e.evolution}")
+                if self.raise_exceptions:
+                    raise
+            except Exception as e:
+                logger.error(f"Runner in Executor raised an exception: {str(e)}", exc_info=True)
+                if self.raise_exceptions:
+                    raise
             return counter, result
 
         return wrapped_callable_async
 
     def submit(
-        self, callable: t.Callable, *args, name: t.Optional[str] = None, **kwargs
+            self, callable: t.Callable, *args, name: t.Optional[str] = None, **kwargs
     ):
         callable_with_index = self.wrap_callable_with_index(callable, len(self.jobs))
         self.jobs.append((callable_with_index, args, kwargs, name))
 
     def results(self) -> t.List[t.Any]:
         if is_event_loop_running():
-            # an event loop is running so call nested_asyncio to fix this
             try:
                 import nest_asyncio
+                nest_asyncio.apply()
             except ImportError:
                 raise ImportError(
-                    "It seems like your running this in a jupyter-like environment. Please install nest_asyncio with `pip install nest_asyncio` to make it work."
+                    "It seems like you're running this in a jupyter-like environment. Please install nest_asyncio with `pip install nest_asyncio` to make it work."
                 )
+            return asyncio.get_event_loop().run_until_complete(self._aresults())
+        else:
+            return asyncio.run(self._aresults())
 
-            nest_asyncio.apply()
+    async def _aresults(self) -> t.List[t.Any]:
+        max_workers = (self.run_config or RunConfig()).max_workers
+        semaphore = asyncio.Semaphore(max_workers if max_workers > 0 else asyncio.tasks._MAX_WORKERS)
 
-        # create a generator for which returns tasks as they finish
-        futures_as_they_finish = as_completed(
-            coros=[afunc(*args, **kwargs) for afunc, args, kwargs, _ in self.jobs],
-            max_workers=(self.run_config or RunConfig()).max_workers,
-        )
+        coros = [run_with_semaphore(semaphore, afunc(*args, **kwargs)) for afunc, args, kwargs, _ in self.jobs]
 
-        async def _aresults() -> t.List[t.Any]:
-            results = []
-            for future in tqdm(
-                futures_as_they_finish,
+        results = []
+        for future in tqdm(
+                asyncio.as_completed(coros),
                 desc=self.desc,
                 total=len(self.jobs),
-                # whether you want to keep the progress bar after completion
                 leave=self.keep_progress_bar,
-            ):
+        ):
+            try:
                 r = await future
                 results.append(r)
+            except Exception as e:
+                logger.error(f"Error processing job: {str(e)}", exc_info=True)
+                if self.raise_exceptions:
+                    raise
 
-            return results
-
-        results = asyncio.run(_aresults())
         sorted_results = sorted(results, key=lambda x: x[0])
         return [r[1] for r in sorted_results]

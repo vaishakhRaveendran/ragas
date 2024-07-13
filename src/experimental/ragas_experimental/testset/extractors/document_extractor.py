@@ -34,17 +34,19 @@ class DocumentExtractor:
             for extractor in extractors
             if isinstance(extractor, LLMbasedExtractor)
         ]
-        rule_extractor = [
-            extractor
-            for extractor in extractors
-            if isinstance(extractor, RulebasedExtractor)
-        ]
+        # Commenting out rule-based extractors
+        # rule_extractor = [
+        #     extractor
+        #     for extractor in extractors
+        #     if isinstance(extractor, RulebasedExtractor)
+        # ]
         if llm_extractors:
             self._extractors.extend(LLMbasedExtractor.merge_extractors(*llm_extractors))
-        if rule_extractor:
-            self._extractors.extend(
-                RulebasedExtractor.merge_extractors(*rule_extractor)
-            )
+        # Commenting out rule-based extractors
+        # if rule_extractor:
+        #     self._extractors.extend(
+        #         RulebasedExtractor.merge_extractors(*rule_extractor)
+        #     )
 
     def extract(
         self, inputs: t.Sequence[Node | LCDocument], *args
@@ -99,9 +101,10 @@ class DocumentExtractor:
             if isinstance(extractor, LLMbasedExtractor):
                 output = await extractor.aextract(doc)
                 doc.metadata.update(output)
-            elif isinstance(extractor, RulebasedExtractor):
-                output = extractor.extract(doc)
-                doc.metadata.update(output)
+            # Commenting out rule-based extractors
+            # elif isinstance(extractor, RulebasedExtractor):
+            #     output = extractor.extract(doc)
+            #     doc.metadata.update(output)
             else:
                 raise ValueError("Extractor not supported")
 
@@ -130,9 +133,10 @@ class DocumentExtractor:
                 if isinstance(extractor, LLMbasedExtractor):
                     output = await extractor.aextract(node)
                     node.properties["metadata"].update(output)
-                elif isinstance(extractor, RulebasedExtractor):
-                    output = extractor.extract(node)
-                    node.properties["metadata"].update(output)
+                # Commenting out rule-based extractors
+                # elif isinstance(extractor, RulebasedExtractor):
+                #     output = extractor.extract(node)
+                #     node.properties["metadata"].update(output)
                 else:
                     raise ValueError("Extractor not supported")
 

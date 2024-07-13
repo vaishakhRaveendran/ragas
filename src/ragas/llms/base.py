@@ -279,8 +279,14 @@ class LlamaIndexLLMWrapper(BaseRagasLLM):
 def llm_factory(
     model: str = "gpt-3.5-turbo", run_config: t.Optional[RunConfig] = None
 ) -> BaseRagasLLM:
-    timeout = None
-    if run_config is not None:
-        timeout = run_config.timeout
-    openai_model = ChatOpenAI(model=model, timeout=timeout)
-    return LangchainLLMWrapper(openai_model, run_config)
+    try:
+        timeout = None
+        if run_config is not None:
+            timeout = run_config.timeout
+        openai_model = ChatOpenAI(model=model, timeout=timeout)
+        result = LangchainLLMWrapper(openai_model, run_config)
+        print(f"Successfully created LLM with model: {model}")
+        return result
+    except Exception as e:
+        print(f"An error occurred while creating the LLM: {e}")
+        return None

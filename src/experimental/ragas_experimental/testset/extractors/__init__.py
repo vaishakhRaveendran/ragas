@@ -20,7 +20,7 @@ __all__ = [
     "summary_extractor",
     "headline_extractor",
     "title_extractor",
-    "RulebasedExtractor",
+   # "RulebasedExtractor",
     "email_extractor",
     "link_extractor",
     "markdown_headings",
